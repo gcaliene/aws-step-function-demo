@@ -1,0 +1,66 @@
+service: edh-consumer-step-function-demo
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  region: us-east-2
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "ec2:*"
+        - "s3:*"
+      Resource:
+        - "*"
+
+functions:
+  startEC2:
+    handler: startEC2.startEC2
+  writeS3:
+    handler: writeS3.writeS3
+
+stepFunctions:
+  stateMachines:
+    stateMachineNameGoesHere:
+      events:
+        - http:
+            path: startEC2
+            method: post
+      definition:
+        Comment: "EDH - Consumer Demo"
+        StartAt: StartEC2
+        States:
+          StartEC2:
+            Type: Task
+            Resource: "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-${opt:stage}-startEC2"
+            Next: RandomNumberGenerator
+          RandomNumberGenerator:
+            Type: Task
+            Resource: "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:randomNumberCreator"
+            # End: true
+            Retry:
+            - ErrorEquals: ["LowNumber"]
+              # Next: FailureNumber
+              IntervalSeconds: 1
+              MaxAttempts: 3
+              BackoffRate: 2
+            Catch:
+            - ErrorEquals: ["HighNumber"]
+              Next: FailureNumber
+            Next: SuccessNumber 
+          SuccessNumber:
+            Type: Task
+            Resource: "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:successNumber"
+            Next: WriteS3
+          FailureNumber:
+            Type: Pass
+            Result: "This is custom lambda function exception"
+            End: true
+          WriteS3:
+            Type: Task
+            Resource: "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-${opt:stage}-writeS3"
+            End: true
+
+
+plugins:
+  - serverless-step-functions
+  - serverless-pseudo-parameters
